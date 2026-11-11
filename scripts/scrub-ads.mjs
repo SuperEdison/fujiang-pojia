@@ -58,7 +58,7 @@ for (const root of ROOTS) {
     files += 1;
     if (!hasAd(text)) continue;
     const out = scrub(text);
-    const hits = (text.match(/官方TG频道@DeepSeek22|t\.me\/DeepSeek22/g) || []).length;
+    const hits = ADS.reduce((n, ad) => n + (text.split(ad).length - 1), 0);
     console.log(`${WRITE ? 'scrub' : 'hit  '} ${hits}  ${file}`);
     if (WRITE) {
       const dest = path.join(backupRoot, path.relative(HOME, file));
