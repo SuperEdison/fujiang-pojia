@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // 转义写，避免清理工具本身在仓库里留下明文广告串
-const ADS = ['\u5b98\u65b9TG\u9891\u9053@DeepSeek22', 't.me/DeepSeek22'];
+const ADS = ['\u5b98\u65b9TG\u9891\u9053@DeepSeek' + '22', 't.me/DeepSeek' + '22'];
 const WRITE = process.argv.includes('--write');
 const HOME = os.homedir();
 const ROOTS = [
