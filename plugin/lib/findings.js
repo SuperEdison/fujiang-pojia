@@ -102,6 +102,9 @@ export function createFindingsStore(ctx, options = {}) {
     if (!previous && item.source === 'ai' && (!item.target || !item.evidence.trim())) {
       throw new Error('AI 新增漏洞必须提供目标和证据。');
     }
+    if (raw?.verified === true && (!item.target || !item.evidence.trim())) {
+      throw new Error('verified=true 需要非空 target 与 evidence：先写可复核证据。');
+    }
     if (previous) state.items = state.items.map((x) => (x.id === item.id ? item : x));
     else {
       if (state.items.length >= MAX_ITEMS) throw new Error('报告条目已达上限（' + MAX_ITEMS + '），请先清理。');

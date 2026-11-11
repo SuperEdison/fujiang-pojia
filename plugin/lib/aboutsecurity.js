@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const OWNER = 'dsh-prompt-custom:skill-library:v1';
 const MARKER = '.fujiang-owner.json';
@@ -9,10 +10,16 @@ const PROVIDER = 'fujiang-aboutsecurity';
 const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 const MAX_SKILLS = 1000;
 const MAX_SKILL_BYTES = 2 * 1024 * 1024;
+// 供应链锚点：固定 commit + 该 commit 的 zip SHA256。上游更新时手动 bump 两者。
+const PIN = Object.freeze({
+  commit: 'c0d3a4645f26be5b94f64344b501db4191dc9788',
+  sha256: '620adb691e7db400ce688510d9fccfafc94cba98117ebfd409164d8319e8a3d0',
+  top: 'AboutSecurity-c0d3a4645f26be5b94f64344b501db4191dc9788',
+});
 const CATALOG = Object.freeze({
   id: 'aboutsecurity', name: '渗透测试', projectName: 'WgpSec AboutSecurity',
   repositoryUrl: 'https://github.com/wgpsec/AboutSecurity',
-  installUrl: 'https://codeload.github.com/wgpsec/AboutSecurity/zip/refs/heads/master',
+  installUrl: `https://codeload.github.com/wgpsec/AboutSecurity/zip/${PIN.commit}`,
 });
 const messageOf = error => String(error?.message || error).slice(0, 1600);
 const isInside = (base, file) => {
@@ -191,6 +198,7 @@ export function createAboutSecuritySkillLibrary(ctx, options = {}) {
     const totalBytes = Number.isFinite(totalHeader) && totalHeader > 0 ? totalHeader : null;
     if (totalBytes && totalBytes > MAX_ARCHIVE_BYTES) throw new Error('AboutSecurity 压缩包超过允许的下载大小。');
     const file = await fs.promises.open(destination, 'wx');
+    const hash = createHash('sha256');
     let receivedBytes = 0;
     try {
       for await (const chunk of response.body) {
@@ -198,6 +206,7 @@ export function createAboutSecuritySkillLibrary(ctx, options = {}) {
         const buffer = Buffer.from(chunk);
         receivedBytes += buffer.length;
         if (receivedBytes > MAX_ARCHIVE_BYTES) throw new Error('AboutSecurity 压缩包超过允许的下载大小。');
+        hash.update(buffer);
         await file.writeFile(buffer);
         const percent = totalBytes ? Math.min(100, Math.floor(receivedBytes * 100 / totalBytes)) : null;
         progress = { stage: 'archive', percent, receivedBytes, totalBytes };
@@ -208,6 +217,10 @@ export function createAboutSecuritySkillLibrary(ctx, options = {}) {
       await file.sync();
     } finally { await file.close(); }
     if (totalBytes && receivedBytes !== totalBytes) throw new Error('AboutSecurity 下载长度不完整，请重试。');
+    const digest = hash.digest('hex');
+    if (digest !== PIN.sha256) {
+      throw new Error(`AboutSecurity 完整性校验失败（sha256 ${digest.slice(0, 16)}…），已中止安装。`);
+    }
     progress = { stage: 'archive', percent: 100, receivedBytes, totalBytes };
   }
 
@@ -266,7 +279,7 @@ export function createAboutSecuritySkillLibrary(ctx, options = {}) {
       progress = { stage: 'extracting', percent: null, receivedBytes: null, totalBytes: null };
       detail = '下载完成，正在解压技能目录…';
       const tar = options.tarCommand || 'tar';
-      await (options.run || run)(tar, ['-xf', archive, '-C', extracted, '--strip-components', '1', '--no-same-owner', '--no-same-permissions', 'AboutSecurity-master/skills'], { cwd: stage, signal });
+      await (options.run || run)(tar, ['-xf', archive, '-C', extracted, '--strip-components', '1', '--no-same-owner', '--no-same-permissions', `${PIN.top}/skills`], { cwd: stage, signal });
       signal.throwIfAborted();
       const extractedSkills = path.join(extracted, 'skills');
       const found = scanSkills(extractedSkills);

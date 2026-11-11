@@ -11,6 +11,7 @@ import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
 import { domainToASCII } from 'node:url';
+import { loadEntries, match as coreMatch } from './core.mjs';
 
 const STAGES = ['recon', 'fingerprint', 'match', 'verify', 'exploit', 'lateral', 'report'];
 const MAX_CAMPAIGNS = 100;
@@ -108,132 +109,41 @@ function parseFrontmatter(markdown) {
   return fields;
 }
 
-const STOPWORDS = new Set(['gateway','server','service','client','web','http','https','httpd','api','admin','login','default','remote','manager','console','portal','access','open','source','code','test','main','index','config','system','vpn','ssl','tls','ipsec','cloud','security','edge','app','gate','proxy','auth']);
-const escapeRe = (w) => w.replace(/[.*+?^\${}()|[\]\\]/g, '\\$&');
-/** 整词匹配：active 不能命中 activemq */
-const hasWord = (hay, word) => new RegExp('(?:^|[^a-z0-9])' + escapeRe(String(word).toLowerCase()) + '(?:$|[^a-z0-9])').test(hay);
-const tokens = (value) => String(value || '')
-  .toLowerCase()
-  .split(/[^a-z0-9.+_/-]+/)
-  .filter((t) => t.length >= 2);
-
-/** 从语料建索引：一条记录 = 一个漏洞条目。 */
+/** 从语料建索引：一条记录 = 一个漏洞条目。评分与排序统一走 `core.mjs`。 */
 export function createKbIndex(corpusDir) {
-  const walkAll = (dir, out = []) => {
-    let items = [];
-    try { items = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
-    for (const item of items) {
-      const full = path.join(dir, item.name);
-      if (item.isDirectory()) walkAll(full, out);
-      else if (item.name.toLowerCase().endsWith('.md')) out.push(full);
-    }
-    return out;
-  };
-  function build() {
-    const entries = [];
-    let categories = [];
-    try { categories = fs.readdirSync(corpusDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); }
-    catch { categories = []; }
-    for (const category of categories) {
-      const dir = path.join(corpusDir, category);
-      let files = [];
-      try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.md') && f.toLowerCase() !== 'skill.md'); }
-      catch { continue; }
-      for (const file of files) {
-        let text = '';
-        try { text = fs.readFileSync(path.join(dir, file), 'utf8'); } catch { continue; }
-        const f = parseFrontmatter(text);
-        entries.push({
-          file, category, path: path.join(dir, file),
-          title: f.title || file,
-          cve: f.cve || '',
-          severity: f.severity || 'medium',
-          product: f.product || '',
-          versions: f.versions || '',
-          entry: f.entry || '',
-          ports: String(f.ports || '').split(/[,\s]+/).filter((p) => /^\d+$/.test(p)).map(Number),
-          keywordList: tokens(f.keywords),
-          rawKeywords: String(f.keywords || '').split(/[,，、\s]+/).map((x) => x.trim()).filter((x) => x.length >= 2),
-          text: tokens([f.title, f.product, f.cve, f.keywords, f.entry, f.versions].join(' ')),
-        });
-      }
-    }
-    return entries;
-  }
+  const roots = [path.resolve(corpusDir)];
+  const entries = () => loadEntries({ roots });
+  const list = () => entries().map((it) => ({
+    file: path.basename(it.abs),
+    category: it.cat,
+    path: it.abs,
+    title: it.title,
+    cve: it.cve,
+    severity: it.severity,
+    product: it.product,
+    versions: it.versions,
+    entry: it.entry,
+    ports: it.ports.split(/[,\s]+/).filter(Boolean).map(Number),
+  }));
 
-  const list = () => build();
-
-  /**
-   * 指纹 → 候选条目。打分：端口 40、产品/标题命中 30、CVE 命中 20、关键词 各 10（上限 20）、critical +5。
-   * 只做本地排序，不联网、不执行任何东西。
-   */
   function match(input = {}, limit = 5) {
-    const ports = []
-      .concat(Array.isArray(input.ports) ? input.ports : [])
-      .concat(input.port === undefined ? [] : [input.port])
-      .map((p) => Number(p))
-      .filter((p) => Number.isFinite(p));
-    const haystackTokens = new Set([
-      ...tokens(input.banner),
-      ...tokens(input.product),
-      ...tokens(Object.values(input.headers || {}).join(' ')),
-      ...tokens(input.text),
-    ]);
-    const haystackText = [input.banner, input.product, input.text, ...Object.values(input.headers || {})]
-      .filter(Boolean).join(' ').toLowerCase();
-
-    const scored = [];
-    for (const item of list()) {
-      let score = 0;
-      const why = [];
-      if (ports.length && item.ports.some((p) => ports.includes(p))) {
-        score += 35;
-        why.push('端口 ' + item.ports.filter((p) => ports.includes(p)).join(','));
-      }
-      const productTokens = tokens(item.product);
-      const productHit = productTokens.some((t) => t.length >= 3 && !STOPWORDS.has(t) && hasWord(haystackText, t));
-      if (productHit) { score += 60; why.push('产品 ' + item.product); }
-      if (item.cve && item.cve !== '无' && hasWord(haystackText, item.cve)) {
-        score += 20; why.push('CVE ' + item.cve);
-      }
-      const kwHits = item.keywordList.filter((k) => k.length >= 3 && !STOPWORDS.has(k) && hasWord(haystackText, k));
-      if (kwHits.length) {
-        score += Math.min(16, kwHits.length * 8);
-        why.push('关键词 ' + kwHits.slice(0, 4).join('/'));
-      }
-      const cnHits = (item.rawKeywords || []).filter((k) => /[\u4e00-\u9fa5]/.test(k) && haystackText.includes(k.toLowerCase()));
-      if (cnHits.length) {
-        // 长词更具体：2 字 8 分，每多一字 +2，上限 40
-        const cnScore = cnHits.reduce((sum, k) => sum + 8 + Math.max(0, (k.length - 2) * 2), 0);
-        score += Math.min(40, cnScore);
-        why.push('中文关键词 ' + cnHits.slice(0, 3).join('/'));
-      }
-      const titleHits = item.text.filter((t) => t.length >= 4 && !STOPWORDS.has(t) && haystackTokens.has(t));
-      if (!productHit && titleHits.length) {
-        score += Math.min(18, titleHits.length * 6);
-        why.push('命中 ' + titleHits.slice(0, 3).join('/'));
-      }
-      if (!score) continue;
-      if (item.severity === 'critical') score += 5;
-      scored.push({ score, why, item });
-    }
-    scored.sort((a, b) => b.score - a.score || a.item.file.localeCompare(b.item.file));
-    return scored.slice(0, Math.max(1, Math.min(20, Number(limit) || 5))).map((hit) => ({
-      file: hit.item.file,
-      category: hit.item.category,
-      title: hit.item.title,
-      cve: hit.item.cve,
-      severity: hit.item.severity,
-      product: hit.item.product,
-      versions: hit.item.versions,
-      entry: hit.item.entry,
-      ports: hit.item.ports,
+    const capped = Math.max(1, Math.min(20, Number(limit) || 5));
+    return coreMatch({ ...input, limit: capped }, entries()).map((hit) => ({
+      file: path.basename(hit.abs),
+      category: hit.cat,
+      title: hit.title,
+      cve: hit.cve,
+      severity: hit.severity,
+      product: hit.product,
+      versions: hit.versions,
+      entry: hit.entry,
+      ports: hit.ports.split(/[,\s]+/).filter(Boolean).map(Number),
       score: hit.score,
-      why: hit.why,
+      why: hit.reason,
     }));
   }
 
-  const size = () => list().length;
+  const size = () => entries().length;
   const reset = () => {};
   return { match, size, reset, list };
 }
@@ -510,6 +420,10 @@ export function createCampaignStore(ctx, options = {}) {
   /** 标记目标达成（人工或模型确认后调用）。 */
   function markDone(id, note) {
     const campaign = get(id);
+    if (!Array.isArray(campaign.assets) || campaign.assets.length === 0 ||
+        !Array.isArray(campaign.steps) || campaign.steps.length === 0) {
+      throw new Error('结单前至少需要 1 个资产和 1 步验证记录（command/result）。');
+    }
     campaign.done = true;
     campaign.doneNote = clamp(String(note || ''), 500);
     campaign.updatedAt = new Date().toISOString();
@@ -658,9 +572,9 @@ export async function registerAutomationTools(ctx, { kbIndex, campaigns, finding
         {
           name: 'kb_match',
           description: '按端口/指纹在本地 CVE/PoC 知识库里匹配候选条目（不联网）。返回 file/cve/severity/entry 与命中理由。',
-          parameters: { port: { type: 'number', description: '端口号' }, banner: text('服务指纹或 banner'), product: { type: 'string', description: '产品名' } },
+          parameters: { port: { type: 'number', description: '端口号' }, banner: text('服务指纹或 banner'), product: { type: 'string', description: '产品名' }, version: { type: 'string', description: '目标版本（如 2.4.49）：命中 versions 区间 +40，明确不符 -30' } },
           output: { schema: schema({ hits: { type: 'array', required: true, items: { type: 'object', additionalProperties: true } } }), render: (args, value) => [{ type: 'text', text: JSON.stringify(value).slice(0, 4000) }] },
-          execute: async (args) => ({ hits: kbIndex.match({ port: args.port, banner: args.banner, product: args.product }, 5) }),
+          execute: async (args) => ({ hits: kbIndex.match({ port: args.port, banner: args.banner, product: args.product, version: args.version }, 5) }),
         },
         {
           name: 'campaign_upsert',
