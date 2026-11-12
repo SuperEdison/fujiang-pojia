@@ -48,7 +48,15 @@ function run(command, args, { cwd, signal, timeout = 600000 } = {}) {
 }
 
 async function findNode(signal) {
-  const dirs = [path.dirname(process.execPath),
+  const miseRoot = path.join(os.homedir(), '.local/share/mise/installs/node');
+  let miseDirs = [];
+  try {
+    miseDirs = fs.readdirSync(miseRoot)
+      .map((version) => path.join(miseRoot, version, 'bin'))
+      .filter((dir) => fs.existsSync(path.join(dir, process.platform === 'win32' ? 'node.exe' : 'node')));
+  } catch { miseDirs = []; }
+  const dirs = [process.env.FUJIANG_NODE ? path.dirname(process.env.FUJIANG_NODE) : '',
+    path.dirname(process.execPath), ...miseDirs,
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs'),
     path.join(process.env.ProgramFiles || 'C:/Program Files', 'nodejs'),
     path.join(process.env.LOCALAPPDATA || '', 'Programs', 'DeepSeek Harness', 'resources', 'runtime', 'primary-runtime', 'dependencies', 'node', 'bin'),
