@@ -1,0 +1,8 @@
+{
+  "name": "fujiang-pojia",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/keyboard-regression.mjs"
+  }
+}
