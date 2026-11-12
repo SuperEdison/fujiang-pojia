@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-prompt-custom",
-  "version": "0.20.12",
+  "version": "0.20.13",
   "description": "Custom prompt controls, a bundled CVE/PoC knowledge base (including a grey-market site surface), and on-demand REA and AboutSecurity skill libraries for DeepSeek Harness",
   "private": true,
   "license": "MIT",

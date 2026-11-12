@@ -2070,7 +2070,9 @@ window.__ModuleLoader__.load({
         });
         // 键盘兜底：Enter / Esc 等同于「同意并遵守」，避免浮层点不到时卡死。
         react.useEffect(() => {
+          if (!open) return;
           const onKey = (event) => {
+            if (event && (event.isComposing || event.keyCode === 229)) return;
             const key = event && event.key;
             if (key === "Enter" || key === "Escape") {
               try { event.preventDefault(); event.stopPropagation(); } catch (error) {}
