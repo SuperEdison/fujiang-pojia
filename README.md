@@ -24,8 +24,12 @@ mkdir -p ~/.dsh/local-plugins
 rm -rf ~/.dsh/local-plugins/dsh-prompt-custom
 cp -R plugin ~/.dsh/local-plugins/dsh-prompt-custom
 
-# 关闭态配置：不注入任何提示词
-cp prompt-custom.example.json ~/.dsh/prompt-custom.json
+# 没有配置时才创建空模板；已有配置先备份，不覆盖
+if [ -f ~/.dsh/prompt-custom.json ]; then
+  cp ~/.dsh/prompt-custom.json ~/.dsh/prompt-custom.json.bak-$(date +%Y%m%d-%H%M%S)
+else
+  cp prompt-custom.example.json ~/.dsh/prompt-custom.json
+fi
 
 # 注册到 desktop profile
 dsh plugin --profile desktop add ~/.dsh/local-plugins/dsh-prompt-custom
@@ -42,6 +46,8 @@ Windows 用 `%USERPROFILE%\.dsh\local-plugins\...`，`dsh` 换成 `dsh.cmd`。
 ```json
 { "enabled": false, "mode": "replace", "text": "", "cards": [] }
 ```
+
+`prompt-custom.example.json` 是关闭态空模板（`enabled:false`、`text:""`），**不含任何提示词正文**。插件的自定义提示词保存在 `~/.dsh/prompt-custom.json`，不随仓库分发；从 GitHub 安装不会自动带上你之前的文本，换机器时把旧机器的这个文件一起拷过去即可。
 
 `enabled:false` 时插件不注册任何 `systemPrompt` 节（`desiredShape()` 返回 `off`），官方人设与提示词原样保留；面板、知识库、台账照常工作。想用自定义提示词再在面板里打开，文本由你自己填。
 
