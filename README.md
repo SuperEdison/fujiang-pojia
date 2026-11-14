@@ -40,6 +40,15 @@ Windows 用 `%USERPROFILE%\.dsh\local-plugins\...`，`dsh` 换成 `dsh.cmd`。
 
 启动 Harness 后，输入框旁会出现「富江破甲」状态与设置入口。
 
+### 更新插件
+
+```bash
+node scripts/update.mjs --check   # 只看远端/本地版本
+node scripts/update.mjs           # 拉最新 main，备份并替换
+```
+
+直接从 `SuperEdison/fujiang-pojia` 的 `main` 下载 zip，替换 `~/.dsh/local-plugins/dsh-prompt-custom`，旧目录备份为 `.bak-<时间>`。不会动 `~/.dsh/prompt-custom.json` 和 `~/.dsh/vuln-report/`；完全退出并重启 Harness 后生效。换仓库用 `FUJIANG_REPO=owner/repo`。
+
 ### 默认提示词与关闭方式
 
 仓库自带 `prompt-custom.json`：`enabled:true`，内容是去广告后的破甲提示词（无频道推广、无二维码）。安装时默认复制到 `~/.dsh/prompt-custom.json`，新装即生效。
