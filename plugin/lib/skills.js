@@ -13,10 +13,15 @@ const MCP_VERSION = '0.2.1-rc.5';
 const MAX_REA_TARBALL_BYTES = 128 * 1024 * 1024;
 const SKILL_NAME = 'fujiang-rea-reverse-engineer-anything';
 const SERVER_NAME = 'fujiang_rea';
+// 6.9.0 把 /^[^\uD800-\uDFFF]*$/ 写进了 183 处 JSON Schema pattern，
+// 宿主的 Rust regex 解析器不接受代理区转义，会拒绝整个工具 schema。
+// 默认固定 6.8.0；要试新版用 FUJIANG_REA_VERSION=6.9.0 并自行确认兼容性。
+const REA_PINNED_VERSION = process.env.FUJIANG_REA_VERSION || '6.8.0';
 const CATALOG = Object.freeze({
   id: 'rea', name: '逆向破解', projectName: 'Reverse Engineer Anything (REA)',
   repositoryUrl: 'https://github.com/morluto/rea',
-  installUrl: 'https://registry.npmjs.org/rea-agents/latest',
+  installUrl: `https://registry.npmjs.org/rea-agents/${REA_PINNED_VERSION}`,
+  pinnedVersion: REA_PINNED_VERSION,
 });
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 const messageOf = error => String(error?.message || error).slice(0, 1600);
@@ -136,7 +141,7 @@ export function createSkillLibrary(ctx, options = {}) {
     assertOwned(root);
     assertOwned(dir);
     const pkg = readJson(path.join(dir, 'node_modules/rea-agents/package.json'));
-    if (pkg.name !== 'rea-agents' || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(pkg.version)) throw new Error('REA 安装信息不完整，请删除后重新下载。');
+    if (pkg.name !== 'rea-agents' || pkg.version !== REA_PINNED_VERSION) throw new Error(`REA 版本不匹配：需要 ${REA_PINNED_VERSION}，当前 ${pkg.version}。请删除后重新安装。`);
     for (const file of ['scripts/rea.mjs', 'skills/reverse-engineer-anything/SKILL.md']) {
       if (!fs.statSync(path.join(dir, 'node_modules/rea-agents', file)).isFile()) throw new Error('REA 安装文件缺失。');
     }
@@ -269,7 +274,7 @@ export function createSkillLibrary(ctx, options = {}) {
     const metadataText = await response.text();
     if (metadataText.length > 1024 * 1024) throw new Error('安装源响应过大。');
     const metadata = JSON.parse(metadataText);
-    if (metadata.name !== 'rea-agents' || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(metadata.version)) throw new Error('官方安装源返回了无效版本。');
+    if (metadata.name !== 'rea-agents' || metadata.version !== REA_PINNED_VERSION) throw new Error(`官方安装源返回了非预期版本（需要 ${REA_PINNED_VERSION}，实际 ${metadata.version}）。`);
     const launch = await (options.findNode || findNode)(signal);
     const stage = path.join(root, '.staging-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
     fs.mkdirSync(stage);
