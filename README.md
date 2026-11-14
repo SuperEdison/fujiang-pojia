@@ -76,10 +76,10 @@ kimi --skills-dir ~/.kimi-code/skills
 
 AboutSecurity 技能库由插件面板下载到 `$DSH_HOME/fujiang-skills/aboutsecurity/skills`（固定 commit + SHA256 校验）。
 
-REA 逆向工具由面板下载到 `$DSH_HOME/fujiang-skills/rea`，固定 `rea-agents@6.8.0`：
+REA 逆向工具由面板下载到 `$DSH_HOME/fujiang-skills/rea`，默认 `rea-agents@6.9.0`：
 
-- 6.9.0 把 `^[^\uD800-\uDFFF]*$` 写进了 183 处 JSON Schema 的 `pattern`；宿主的 Rust regex 解析器不接受代理区转义，会拒绝整个 `binary_session` 工具。
-- 需要试新版：`FUJIANG_REA_VERSION=6.9.0`，并自行确认宿主 schema 校验器兼容。
+- 6.9 把 `^[^\uD800-\uDFFF]*$` 写进了 183 处 JSON Schema 的 `pattern`；宿主的 Rust regex 解析器不接受代理区转义，会拒绝 `binary_session` 等工具。安装时插件会把这些 pattern 统一清洗成 `^[\s\S]*$`，NUL 与绝对路径约束保留。
+- `FUJIANG_REA_VERSION` 可覆盖安装版本。
 - Node 要求 `^22.23.4 || ^24.22.1 || >=26.12.1`；插件会扫描 mise 安装目录，也认 `FUJIANG_NODE`。
 
 ## 匹配口径

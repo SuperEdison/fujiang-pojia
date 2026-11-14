@@ -13,10 +13,9 @@ const MCP_VERSION = '0.2.1-rc.5';
 const MAX_REA_TARBALL_BYTES = 128 * 1024 * 1024;
 const SKILL_NAME = 'fujiang-rea-reverse-engineer-anything';
 const SERVER_NAME = 'fujiang_rea';
-// 6.9.0 把 /^[^\uD800-\uDFFF]*$/ 写进了 183 处 JSON Schema pattern，
-// 宿主的 Rust regex 解析器不接受代理区转义，会拒绝整个工具 schema。
-// 默认固定 6.8.0；要试新版用 FUJIANG_REA_VERSION=6.9.0 并自行确认兼容性。
-const REA_PINNED_VERSION = process.env.FUJIANG_REA_VERSION || '6.8.0';
+// REA 6.9.0 把 /^[^\uD800-\uDFFF]*$/ 写进了 183 处 JSON Schema pattern，
+// 宿主的 Rust regex 解析器不接受代理区转义。安装后统一清洗成 ^[\s\S]*$。
+const REA_PINNED_VERSION = process.env.FUJIANG_REA_VERSION || '6.9.0';
 const CATALOG = Object.freeze({
   id: 'rea', name: '逆向破解', projectName: 'Reverse Engineer Anything (REA)',
   repositoryUrl: 'https://github.com/morluto/rea',
@@ -93,6 +92,58 @@ function writeJson(file, value) {
   const temp = file + '.tmp';
   fs.writeFileSync(temp, JSON.stringify(value, null, 2) + '\n', 'utf8');
   fs.renameSync(temp, file);
+}
+
+/**
+ * REA 6.9 的 localPathStringSchema 把「禁止 UTF-16 代理码点」写进了 JSON Schema
+ * 的 pattern（mcp-catalog.json 与 full 共 183 处，dist 里还有 3 处运行时生成）。
+ * 宿主的 Rust regex 不接受 `\uD800` 这种转义，会拒绝整个工具。这里把该 pattern
+ * 统一改成 `^[\s\S]*$`（等价于不加约束）；NUL 与绝对路径的 pattern 保留。
+ */
+function sanitizeReaSchema(dir) {
+  const root = path.join(dir, 'node_modules/rea-agents/dist');
+  const files = [];
+  const walk = (current) => {
+    let entries = [];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(json|js)$/.test(entry.name)) files.push(full);
+    }
+  };
+  walk(root);
+  let jsonCount = 0;
+  let jsCount = 0;
+  for (const file of files) {
+    let text = '';
+    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    if (file.endsWith('.json')) {
+      let data;
+      try { data = JSON.parse(text); } catch { continue; }
+      let hits = 0;
+      const visit = (node) => {
+        if (!node || typeof node !== 'object') return;
+        if (typeof node.pattern === 'string' && node.pattern.includes('\\uD800')) {
+          node.pattern = '^[\\s\\S]*$';
+          hits += 1;
+        }
+        for (const value of Object.values(node)) visit(value);
+      };
+      visit(data);
+      if (hits) {
+        fs.writeFileSync(file, JSON.stringify(data));
+        jsonCount += hits;
+      }
+    } else {
+      const next = text.replace(/\.regex\(\/\^\[\^\\uD800-\\uDFFF\]\*\$\/u,\s*"[^"]*"\)/g, '');
+      if (next !== text) {
+        fs.writeFileSync(file, next);
+        jsCount += 1;
+      }
+    }
+  }
+  return { jsonCount, jsCount };
 }
 
 export function createSkillLibrary(ctx, options = {}) {
@@ -289,6 +340,7 @@ export function createSkillLibrary(ctx, options = {}) {
         '--omit=dev', '--engine-strict', '--registry=https://registry.npmjs.org', '--no-save', '--package-lock=false',
         tarballPath, `@deepseek-ai/dsh-mcp-client@${MCP_VERSION}`], { cwd: stage, signal });
       if (closed) throw new Error('插件已停止。');
+      sanitizeReaSchema(stage);
       verifyInstallation(stage);
       fs.unlinkSync(tarballPath);
       writeJson(path.join(stage, 'launch.json'), { node: launch.node });
