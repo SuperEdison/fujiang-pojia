@@ -12,7 +12,8 @@ plugin/lib/index.js      插件入口：面板、HTTP 路由、系统提示词�
 plugin/lib/client.js     设置页 UI
 plugin/knowledge/        167 条知识（9 分类，Markdown + frontmatter）
 bin/kb-match.mjs         同内核的 CLI
-prompt-custom.example.json  关闭态提示词配置模板
+prompt-custom.json          默认去广告破甲配置（enabled:true）
+prompt-custom.example.json  关闭态空模板
 ```
 
 ## 安装插件
@@ -24,11 +25,11 @@ mkdir -p ~/.dsh/local-plugins
 rm -rf ~/.dsh/local-plugins/dsh-prompt-custom
 cp -R plugin ~/.dsh/local-plugins/dsh-prompt-custom
 
-# 没有配置时才创建空模板；已有配置先备份，不覆盖
+# 默认使用仓库自带的去广告配置；已有配置先备份，不覆盖
 if [ -f ~/.dsh/prompt-custom.json ]; then
   cp ~/.dsh/prompt-custom.json ~/.dsh/prompt-custom.json.bak-$(date +%Y%m%d-%H%M%S)
 else
-  cp prompt-custom.example.json ~/.dsh/prompt-custom.json
+  cp prompt-custom.json ~/.dsh/prompt-custom.json
 fi
 
 # 注册到 desktop profile
@@ -39,17 +40,13 @@ Windows 用 `%USERPROFILE%\.dsh\local-plugins\...`，`dsh` 换成 `dsh.cmd`。
 
 启动 Harness 后，输入框旁会出现「富江破甲」状态与设置入口。
 
-### 提示词注入默认关闭
+### 默认提示词与关闭方式
 
-`prompt-custom.json` 是：
+仓库自带 `prompt-custom.json`：`enabled:true`，内容是去广告后的破甲提示词（无频道推广、无二维码）。安装时默认复制到 `~/.dsh/prompt-custom.json`，新装即生效。
 
-```json
-{ "enabled": false, "mode": "replace", "text": "", "cards": [] }
-```
+已有配置不会被覆盖：安装步骤会先备份。想恢复默认文本，删掉 `~/.dsh/prompt-custom.json` 后重新复制仓库版本，或在面板里粘贴。
 
-`prompt-custom.example.json` 是关闭态空模板（`enabled:false`、`text:""`），**不含任何提示词正文**。插件的自定义提示词保存在 `~/.dsh/prompt-custom.json`，不随仓库分发；从 GitHub 安装不会自动带上你之前的文本，换机器时把旧机器的这个文件一起拷过去即可。
-
-`enabled:false` 时插件不注册任何 `systemPrompt` 节（`desiredShape()` 返回 `off`），官方人设与提示词原样保留；面板、知识库、台账照常工作。想用自定义提示词再在面板里打开，文本由你自己填。
+想关闭注入：把 `prompt-custom.example.json` 复制为 `~/.dsh/prompt-custom.json`（`enabled:false`、空文本），或在面板里关开关。`enabled:false` 时插件不注册任何 `systemPrompt` 节（`desiredShape()` 返回 `off`），官方人设与提示词原样保留；面板、知识库、台账照常工作。
 
 作业链绑定任务后会注入 `campaign:rules` / `campaign:context`（阶段、授权范围、下一步），这是功能上下文，不绑定任务时不出现。
 
